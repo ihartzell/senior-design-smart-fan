@@ -15,7 +15,7 @@ class FanController:
     
     def __init__(self):
         self.is_on = False
-        self.last_speed = ''
+        self.last_speed = 'low'
         
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
@@ -86,6 +86,8 @@ class ApiController:
     def save_last_temp(self, temp):
         response = requests.post(self.url_base + '/temperature', headers=self.headers)        
 
+        print('Update temp {}'.format(datetime.now()))
+
         if response.status_code == 200:
             return json.loads(response.content.decode('utf-8'))
         else:
@@ -94,14 +96,24 @@ class ApiController:
     def get_temp_ranges(self):
         response = requests.get(self.url_base + '/temperature/ranges', headers=self.headers)        
 
+        print('Got temp ranges {}'.format(datetime.now()))
+
         if response.status_code == 200:
             return json.loads(response.content.decode('utf-8'))
         else:
             return None
-    
+        
+    def get_switch(self):
+        response = requests.get(self.url_base + '/switch', headers=self.headers)
+
+        if response.status_code == 200:
+            return json.loads(response.content.decode('utf-8'))
+        else:
+            return None
+        
 def main():
     fan_controller.off()
-    fan_controller.on('medium')
+    #fan_controller.on('medium')
     
     last_time = datetime.now()
 
@@ -109,27 +121,36 @@ def main():
         # Motion detection
         time_elapsed = (datetime.now() - motion_controller.last_motion).seconds
         
-        print('No motion in {} sec'.format(time_elapsed))
+        if api_controller.get_switch() == 'on' and fan_controller.is_on:
+            fan_controller.on()
+        else:
+            fan_controller.off()
+            continue
         
-        if int(time_elapsed) >= 15:
+        #print('No motion in {} sec'.format(time_elapsed))
+        
+        if int(time_elapsed) >= 100:
             fan_controller.off()
         else:
             fan_controller.on(fan_controller.last_speed)
             
         # Temperature detection
-        temp = temp_controller.read()
+        temp = (temp_controller.read() * (9/5)) + 32
         time_elapsed = (datetime.now() - last_time).seconds
         
         if int(time_elapsed) >= 5:
-           api_controller.save_last_temp(temp)
-           last_time = datetime.now()
-        
-        '''if temp >= 24:
-            fan_controller.on('high')
-        elif temp >= 23 and temp < 24:
-            fan_controller.on('medium')
-        else:
-            fan_controller.on('low')'''
+            api_controller.save_last_temp(temp)
+            temp_ranges = api_controller.get_temp_ranges()
+            print(temp)
+            print(temp_ranges)
+            last_time = datetime.now()
+            
+            if temp >= int(temp_ranges['high']['from']):
+                fan_controller.on('high')
+            elif temp >= int(temp_ranges['medium']['from']) and temp <= int(temp_ranges['medium']['to']):
+                fan_controller.on('medium')
+            else:
+                fan_controller.on('low')
 
 if __name__ == '__main__':
     fan_controller = FanController()
