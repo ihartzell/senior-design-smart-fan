@@ -1,12 +1,14 @@
-import RPi.GPIO as GPIO
-import os
-import json
-import requests
+from datetime import datetime
 from gpiozero import MotionSensor
+import json
+import os
 from threading import Thread
-from datetime import datetime 
+import requests
+import RPi.GPIO as GPIO
+
 
 class FanController:
+    # These are the pins on the raspberry pi for the low-high settings.
     PINS = {
         'low': 17,
         'medium': 15,
@@ -22,9 +24,9 @@ class FanController:
     
         GPIO.setup(self.PINS.values(), GPIO.OUT)
         GPIO.output(self.PINS.values(), GPIO.HIGH)
-        
+    
     def on(self, speed='low'):
-        self.off()
+        self.off() # Need, so there isn't 2 speeds on at once.
         self.is_on = True
         self.last_speed = speed
     
@@ -32,8 +34,9 @@ class FanController:
         
     def off(self):
         if self.is_on:
-            GPIO.output(self.PINS.values(), GPIO.HIGH)
-        
+            GPIO.output(self.PINS.values(), GPIO.HIGH) # Turns relay switch off.
+  
+  
 class TempController:
     DEVICE_FILE = '/sys/bus/w1/devices/28-00000a9df21a/w1_slave'
     
@@ -61,13 +64,14 @@ class TempController:
         f.close()
         
         return lines
-    
+  
+  
 class MotionController:
     PIN = 27
     
     def __init__(self):
         self.sensor = MotionSensor(self.PIN)
-        self.last_motion = datetime.now() 
+        self.last_motion = datetime.now()
         
         Thread(target=self.record_motion).start()
         
@@ -113,7 +117,6 @@ class ApiController:
         
 def main():
     fan_controller.off()
-    #fan_controller.on('medium')
     
     last_time = datetime.now()
 
@@ -125,15 +128,11 @@ def main():
             fan_controller.on()
         else:
             fan_controller.off()
-            continue
-        
-        #print('No motion in {} sec'.format(time_elapsed))
-        
+            continue   
         if int(time_elapsed) >= 100:
             fan_controller.off()
         else:
             fan_controller.on(fan_controller.last_speed)
-            
         # Temperature detection
         temp = (temp_controller.read() * (9/5)) + 32
         time_elapsed = (datetime.now() - last_time).seconds
