@@ -2,28 +2,31 @@ from datetime import datetime
 from gpiozero import MotionSensor
 import json
 import os
-from threading import Thread
 import requests
 import RPi.GPIO as GPIO
+from threading import Thread
 
-
+# Design Decision: For this project we went with a simple
+# object-oriented pattern where we made a seperate class for the
+# fan, api, temperature sensor, and motion sensor. We considered potentially
+# using the has-a or is-a relationships, but for this project they didn't seem needed.
+# The classes encapsulate the information specific to those classes.
 class FanController:
-    # These are the pins on the raspberry pi for the low-high settings.
+    # These are the pins on the raspberry pi for the low, medium and high settings.
     PINS = {
         'low': 17,
         'medium': 15,
         'high': 14
     }
-    
     def __init__(self):
-        self.is_on = False
+        self.is_on = False   
         self.last_speed = 'low'
         
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
     
         GPIO.setup(self.PINS.values(), GPIO.OUT)
-        GPIO.output(self.PINS.values(), GPIO.HIGH)
+        GPIO.output(self.PINS.values(), GPIO.HIGH)  # GPIO.HIGH means the fan is off.
     
     def on(self, speed='low'):
         self.off() # Need, so there isn't 2 speeds on at once.
@@ -35,10 +38,11 @@ class FanController:
     def off(self):
         if self.is_on:
             GPIO.output(self.PINS.values(), GPIO.HIGH) # Turns relay switch off.
-  
-  
+            self.is_on = False
+
+
 class TempController:
-    DEVICE_FILE = '/sys/bus/w1/devices/28-00000a9df21a/w1_slave'
+    DEVICE_FILE = '/sys/bus/w1/devices/28-00000a9df21a/w1_slave'  
     
     def __init__(self):
         os.system('modprobe w1-gpio')
@@ -72,14 +76,14 @@ class MotionController:
     def __init__(self):
         self.sensor = MotionSensor(self.PIN)
         self.last_motion = datetime.now()
-        
         Thread(target=self.record_motion).start()
         
     def record_motion(self):
         while True:
             self.sensor.wait_for_motion()
             self.last_motion = datetime.now() 
-    
+
+
 class ApiController:
     def __init__(self):
         self.url_base = 'http://tp-api.zsluder.com/api'
@@ -111,37 +115,41 @@ class ApiController:
         response = requests.get(self.url_base + '/switch', headers=self.headers)
 
         if response.status_code == 200:
-            return json.loads(response.content.decode('utf-8'))
+            return json.loads(response.content.decode('utf-8'))['switch']
         else:
             return None
         
 def main():
-    fan_controller.off()
+    
+    fan_controller.on()  
     
     last_time = datetime.now()
 
     while True:
-        # Motion detection
         time_elapsed = (datetime.now() - motion_controller.last_motion).seconds
         
         if api_controller.get_switch() == 'on' and fan_controller.is_on:
             fan_controller.on()
         else:
             fan_controller.off()
-            continue   
-        if int(time_elapsed) >= 100:
+            continue
+        
+        if int(time_elapsed) >= 60:
             fan_controller.off()
         else:
             fan_controller.on(fan_controller.last_speed)
         # Temperature detection
-        temp = (temp_controller.read() * (9/5)) + 32
+        temp = (temp_controller.read() * (9 / 5)) + 32
         time_elapsed = (datetime.now() - last_time).seconds
         
         if int(time_elapsed) >= 5:
             api_controller.save_last_temp(temp)
+            
             temp_ranges = api_controller.get_temp_ranges()
+            
             print(temp)
             print(temp_ranges)
+            
             last_time = datetime.now()
             
             if temp >= int(temp_ranges['high']['from']):
@@ -159,6 +167,5 @@ if __name__ == '__main__':
     
     try: 
         main()
-    except KeyboardInterrupt:
+    except KeyboardInterrupt: # Allows the program to be terminated via cntrl+z.
         fan_controller.off()
-        
